@@ -114,8 +114,26 @@ pipeline {
             script {
                 sh '''
                     echo "🧹 Cleaning up..."
-                    docker logout || echo "⚠️ Docker logout failed or already logged out"
-                    docker system prune -f || echo "⚠️ Docker cleanup failed"
+                    
+                    # Check Docker daemon accessibility
+                    if docker info >/dev/null 2>&1; then
+                        echo "✅ Docker daemon accessible"
+                        docker logout || echo "⚠️ Docker logout failed or already logged out"
+                        
+                        # Try Docker cleanup with permission check
+                        if docker system df >/dev/null 2>&1; then
+                            docker system prune -f || echo "⚠️ Docker cleanup failed - continuing anyway"
+                        else
+                            echo "⚠️ Insufficient permissions for Docker cleanup"
+                        fi
+                    else
+                        echo "⚠️ Docker daemon not accessible - skipping Docker cleanup"
+                        echo "This is normal in some Jenkins environments"
+                    fi
+                    
+                    # Alternative cleanup - remove build artifacts
+                    rm -rf vendor/ node_modules/ || echo "⚠️ Artifact cleanup failed"
+                    echo "✅ Basic cleanup completed"
                 '''
                 echo "✅ Deployment pipeline finished for build ${BUILD_NUMBER}"
             }
@@ -125,9 +143,11 @@ pipeline {
             script {
                 sh '''
                     echo "📊 Failure diagnostics:"
-                    echo "Docker version: $(docker --version)"
-                    echo "Available space: $(df -h /)"
-                    echo "Railway CLI status: $(which railway || echo 'Not found')"
+                    docker --version || echo "Docker not available"
+                    echo "Available space: $(df -h / 2>/dev/null || echo 'Unable to check disk space')"
+                    which railway || echo "Railway CLI not found"
+                    echo "Jenkins user: $(whoami)"
+                    echo "Docker socket permissions: $(ls -la /var/run/docker.sock 2>/dev/null || echo 'Docker socket not accessible')"
                 '''
             }
         }
