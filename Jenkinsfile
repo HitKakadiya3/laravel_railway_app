@@ -77,7 +77,7 @@ pipeline {
             echo "❌ Pipeline failed! Check the logs above for details."
         }
         success {
-            echo "🎉 Pipeline completed successfully!"
+            echo "🎉 Pipeline completed successfully !"
         }
     }
 }
