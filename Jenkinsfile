@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     environment {
-        IMAGE_NAME = "docker.io/hitendra369/laravel_railway_app"
+        IMAGE_NAME = "hitendra369/laravel_railway_app"
         TAG = "${BUILD_NUMBER}"
         DOCKERHUB_USER = credentials('DOCKERHUB_USERNAME')
         DOCKERHUB_PASS = credentials('DOCKERHUB_PASSWORD')
@@ -27,13 +27,29 @@ pipeline {
         stage('Build & Push Docker Image') {
             steps {
                 sh '''
+                    # Debug: Check if credentials are available
+                    echo "Docker Hub User: $DOCKERHUB_USER"
+                    echo "Password length: ${#DOCKERHUB_PASS}"
+                    
+                    # Login to Docker Hub
                     echo "$DOCKERHUB_PASS" | docker login -u "$DOCKERHUB_USER" --password-stdin
+                    
+                    if [ $? -ne 0 ]; then
+                        echo "❌ Docker login failed!"
+                        exit 1
+                    fi
+                    
+                    echo "✅ Docker login successful"
 
+                    # Build Docker image
                     docker build -t ${IMAGE_NAME}:${TAG} .
                     docker tag ${IMAGE_NAME}:${TAG} ${IMAGE_NAME}:latest
 
+                    # Push Docker images
                     docker push ${IMAGE_NAME}:${TAG}
                     docker push ${IMAGE_NAME}:latest
+                    
+                    echo "✅ Docker images pushed successfully"
                 '''
             }
         }
@@ -54,7 +70,14 @@ pipeline {
 
     post {
         always {
+            sh 'docker logout || true'
             echo "✅ Deployment pipeline finished for build ${BUILD_NUMBER}"
+        }
+        failure {
+            echo "❌ Pipeline failed! Check the logs above for details."
+        }
+        success {
+            echo "🎉 Pipeline completed successfully!"
         }
     }
 }
