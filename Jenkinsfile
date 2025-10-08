@@ -26,58 +26,121 @@ pipeline {
 
         stage('Build & Push Docker Image') {
             steps {
-                sh '''
-                    # Debug: Check if credentials are available
-                    echo "Docker Hub User: $DOCKERHUB_USER"
-                    echo "Password length: ${#DOCKERHUB_PASS}"
-                    
-                    # Login to Docker Hub
-                    echo "$DOCKERHUB_PASS" | docker login -u "$DOCKERHUB_USER" --password-stdin
-                    
-                    if [ $? -ne 0 ]; then
-                        echo "❌ Docker login failed!"
-                        exit 1
-                    fi
-                    
-                    echo "✅ Docker login successful"
+                script {
+                    try {
+                        sh '''
+                            # Debug: Check if credentials are available
+                            echo "Docker Hub User: $DOCKERHUB_USER"
+                            echo "Password length: ${#DOCKERHUB_PASS}"
+                            
+                            # Login to Docker Hub
+                            echo "$DOCKERHUB_PASS" | docker login -u "$DOCKERHUB_USER" --password-stdin
+                            
+                            if [ $? -ne 0 ]; then
+                                echo "❌ Docker login failed!"
+                                exit 1
+                            fi
+                            
+                            echo "✅ Docker login successful"
 
-                    # Build Docker image
-                    docker build -t ${IMAGE_NAME}:${TAG} .
-                    docker tag ${IMAGE_NAME}:${TAG} ${IMAGE_NAME}:latest
+                            # Build Docker image
+                            docker build -t ${IMAGE_NAME}:${TAG} .
+                            if [ $? -ne 0 ]; then
+                                echo "❌ Docker build failed!"
+                                exit 1
+                            fi
+                            
+                            docker tag ${IMAGE_NAME}:${TAG} ${IMAGE_NAME}:latest
 
-                    # Push Docker images
-                    docker push ${IMAGE_NAME}:${TAG}
-                    docker push ${IMAGE_NAME}:latest
-                    
-                    echo "✅ Docker images pushed successfully"
-                '''
+                            # Push Docker images
+                            docker push ${IMAGE_NAME}:${TAG}
+                            if [ $? -ne 0 ]; then
+                                echo "❌ Docker push failed for tag ${TAG}!"
+                                exit 1
+                            fi
+                            
+                            docker push ${IMAGE_NAME}:latest
+                            if [ $? -ne 0 ]; then
+                                echo "❌ Docker push failed for latest tag!"
+                                exit 1
+                            fi
+                            
+                            echo "✅ Docker images pushed successfully"
+                        '''
+                    } catch (Exception e) {
+                        error "Docker build and push stage failed: ${e.getMessage()}"
+                    }
+                }
             }
         }
 
         stage('Deploy to Railway') {
             steps {
-                sh '''
-                    curl -sSL https://raw.githubusercontent.com/railwayapp/cli/master/install.sh | sh
-                    export PATH="$HOME/.railway/bin:$PATH"
-                    railway login --apiKey "$RAILWAY_TOKEN"
+                script {
+                    try {
+                        sh '''
+                            curl -sSL https://raw.githubusercontent.com/railwayapp/cli/master/install.sh | sh
+                            if [ $? -ne 0 ]; then
+                                echo "❌ Railway CLI installation failed!"
+                                exit 1
+                            fi
+                            
+                            export PATH="$HOME/.railway/bin:$PATH"
+                            railway login --apiKey "$RAILWAY_TOKEN"
+                            if [ $? -ne 0 ]; then
+                                echo "❌ Railway login failed!"
+                                exit 1
+                            fi
 
-                    # Redeploy latest Docker image
-                    railway redeploy --service "$RAILWAY_SERVICE_ID" -y
-                '''
+                            # Redeploy latest Docker image
+                            railway redeploy --service "$RAILWAY_SERVICE_ID" -y
+                            if [ $? -ne 0 ]; then
+                                echo "❌ Railway deployment failed!"
+                                exit 1
+                            fi
+                            
+                            echo "✅ Railway deployment successful"
+                        '''
+                    } catch (Exception e) {
+                        error "Railway deployment stage failed: ${e.getMessage()}"
+                    }
+                }
             }
         }
     }
 
     post {
         always {
-            sh 'docker logout || true'
-            echo "✅ Deployment pipeline finished for build ${BUILD_NUMBER}"
+            script {
+                sh '''
+                    echo "🧹 Cleaning up..."
+                    docker logout || echo "⚠️ Docker logout failed or already logged out"
+                    docker system prune -f || echo "⚠️ Docker cleanup failed"
+                '''
+                echo "✅ Deployment pipeline finished for build ${BUILD_NUMBER}"
+            }
         }
         failure {
             echo "❌ Pipeline failed! Check the logs above for details."
+            script {
+                sh '''
+                    echo "📊 Failure diagnostics:"
+                    echo "Docker version: $(docker --version)"
+                    echo "Available space: $(df -h /)"
+                    echo "Railway CLI status: $(which railway || echo 'Not found')"
+                '''
+            }
         }
         success {
-            echo "🎉 Pipeline completed successfully !"
+            echo "🎉 Pipeline completed successfully! Application deployed to Railway."
+            script {
+                sh '''
+                    echo "📈 Success summary:"
+                    echo "✅ Docker image: ${IMAGE_NAME}:${TAG}"
+                    echo "✅ Service ID: ${RAILWAY_SERVICE_ID}"
+                    echo "✅ Build number: ${BUILD_NUMBER}"
+                '''
+            }
         }
     }
 }
