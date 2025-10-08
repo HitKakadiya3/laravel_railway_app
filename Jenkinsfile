@@ -95,7 +95,7 @@ pipeline {
                             # Redeploy latest Docker image
                             railway redeploy --service "$RAILWAY_SERVICE_ID" -y
                             if [ $? -ne 0 ]; then
-                                echo "❌ Railway deployment failed!"
+                                echo "❌ Railway deployment failed !"
                                 exit 1
                             fi
                             
